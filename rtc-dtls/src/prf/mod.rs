@@ -8,7 +8,7 @@ use crypto::{HashAlgorithm as CryptoHashAlgorithm, HmacAlgorithm, Mac, RTCCrypto
 use crate::cipher_suite::CipherSuiteHash;
 use crate::content::ContentType;
 use crate::curve::named_curve::*;
-use crate::record_layer::record_layer_header::ProtocolVersion;
+use crate::record_layer::record_layer_header::{ProtocolVersion, PROTOCOL_VERSION1_0};
 use shared::error::*;
 
 pub(crate) const PRF_MASTER_SECRET_LABEL: &str = "master secret";
@@ -96,14 +96,70 @@ pub(crate) fn prf_pre_master_secret(
 //  output data.
 //
 // https://tools.ietf.org/html/rfc4346w
-fn hmac_sha(
+/// The HMAC underlying one `P_hash` iteration.
+#[derive(Copy, Clone, Debug)]
+enum HmacKind {
+    /// HMAC-MD5, used only by the DTLS 1.0 PRF.
+    Md5,
+    /// HMAC-SHA1.
+    Sha1,
+    /// HMAC-SHA256.
+    Sha256,
+}
+
+impl HmacKind {
+    fn digest_len(self) -> usize {
+        match self {
+            HmacKind::Md5 => 16,
+            HmacKind::Sha1 => 20,
+            HmacKind::Sha256 => CipherSuiteHash::Sha256.size(),
+        }
+    }
+}
+
+/// Keyed HMAC over `input`, using the provider for the underlying hash.
+///
+/// HMAC-MD5 has no provider primitive (only the DTLS 1.0 PRF needs it), so it is composed here
+/// from the MD5 compression function. SHA-1/SHA-256 use the provider's keyed HMAC.
+fn hmac_sign(
     crypto: &dyn RTCCrypto,
-    h: CipherSuiteHash,
+    kind: HmacKind,
     key: &[u8],
     input: &[&[u8]],
 ) -> Result<Vec<u8>> {
-    let algorithm = match h {
-        CipherSuiteHash::Sha256 => HmacAlgorithm::Sha256,
+    /// MD5's block size, per RFC 2104.
+    const MD5_BLOCK_LEN: usize = 64;
+
+    if let HmacKind::Md5 = kind {
+        let mut key_block = [0u8; MD5_BLOCK_LEN];
+        if key.len() > MD5_BLOCK_LEN {
+            let hashed = crypto
+                .hash(CryptoHashAlgorithm::Md5, key)
+                .map_err(|error| Error::Crypto(error.to_string()))?;
+            key_block[..hashed.len()].copy_from_slice(&hashed);
+        } else {
+            key_block[..key.len()].copy_from_slice(key);
+        }
+
+        let mut inner = key_block.iter().map(|b| b ^ 0x36).collect::<Vec<u8>>();
+        for part in input {
+            inner.extend_from_slice(part);
+        }
+        let inner_digest = crypto
+            .hash(CryptoHashAlgorithm::Md5, &inner)
+            .map_err(|error| Error::Crypto(error.to_string()))?;
+
+        let mut outer = key_block.iter().map(|b| b ^ 0x5c).collect::<Vec<u8>>();
+        outer.extend_from_slice(&inner_digest);
+        return crypto
+            .hash(CryptoHashAlgorithm::Md5, &outer)
+            .map_err(|error| Error::Crypto(error.to_string()));
+    }
+
+    let algorithm = match kind {
+        HmacKind::Sha1 => HmacAlgorithm::Sha1,
+        HmacKind::Sha256 => HmacAlgorithm::Sha256,
+        HmacKind::Md5 => unreachable!("handled above"),
     };
     let mut output = vec![0; algorithm.output_len()];
     crypto
@@ -113,36 +169,67 @@ fn hmac_sha(
     Ok(output)
 }
 
+fn p_hash(
+    crypto: &dyn RTCCrypto,
+    kind: HmacKind,
+    secret: &[u8],
+    seed: &[u8],
+    requested_length: usize,
+) -> Result<Vec<u8>> {
+    let mut last_round = seed.to_vec();
+    let mut out = vec![];
+
+    let iterations = requested_length.div_ceil(kind.digest_len());
+    for _ in 0..iterations {
+        last_round = hmac_sign(crypto, kind, secret, &[&last_round])?;
+        let with_secret = hmac_sign(crypto, kind, secret, &[&last_round, seed])?;
+
+        out.extend_from_slice(&with_secret);
+    }
+
+    out.truncate(requested_length);
+    Ok(out)
+}
+
+/// The PRF for the negotiated version.
+///
+/// TLS/DTLS 1.2 uses `P_SHA256` for every supported suite. TLS/DTLS 1.0-1.1 instead split the
+/// secret and XOR `P_MD5` with `P_SHA1` (RFC 4346 section 5). `h` selects the iteration hash on
+/// the 1.2 path only.
 pub(crate) fn prf_p_hash(
     crypto: &dyn RTCCrypto,
     secret: &[u8],
     seed: &[u8],
     requested_length: usize,
+    version: ProtocolVersion,
     h: CipherSuiteHash,
 ) -> Result<Vec<u8>> {
-    let mut last_round = seed.to_vec();
-    let mut out = vec![];
-
-    let iterations = ((requested_length as f64) / (h.size() as f64)).ceil() as usize;
-    for _ in 0..iterations {
-        last_round = hmac_sha(crypto, h, secret, &[&last_round])?;
-        let with_secret = hmac_sha(crypto, h, secret, &[&last_round, seed])?;
-
-        out.extend_from_slice(&with_secret);
+    if version == PROTOCOL_VERSION1_0 {
+        // S1 takes the extra byte when the secret length is odd.
+        let half = secret.len().div_ceil(2);
+        let (s1, s2) = secret.split_at(half);
+        let md5 = p_hash(crypto, HmacKind::Md5, s1, seed, requested_length)?;
+        let sha1 = p_hash(crypto, HmacKind::Sha1, s2, seed, requested_length)?;
+        Ok(md5.iter().zip(&sha1).map(|(a, b)| a ^ b).collect())
+    } else {
+        match h {
+            CipherSuiteHash::Sha256 => {
+                p_hash(crypto, HmacKind::Sha256, secret, seed, requested_length)
+            }
+        }
     }
-
-    Ok(out[..requested_length].to_vec())
 }
 
 pub(crate) fn prf_extended_master_secret(
     crypto: &dyn RTCCrypto,
     pre_master_secret: &[u8],
     session_hash: &[u8],
+    version: ProtocolVersion,
     h: CipherSuiteHash,
 ) -> Result<Vec<u8>> {
     let mut seed = PRF_EXTENDED_MASTER_SECRET_LABEL.as_bytes().to_vec();
     seed.extend_from_slice(session_hash);
-    prf_p_hash(crypto, pre_master_secret, &seed, 48, h)
+    prf_p_hash(crypto, pre_master_secret, &seed, 48, version, h)
 }
 
 pub(crate) fn prf_master_secret(
@@ -150,12 +237,13 @@ pub(crate) fn prf_master_secret(
     pre_master_secret: &[u8],
     client_random: &[u8],
     server_random: &[u8],
+    version: ProtocolVersion,
     h: CipherSuiteHash,
 ) -> Result<Vec<u8>> {
     let mut seed = PRF_MASTER_SECRET_LABEL.as_bytes().to_vec();
     seed.extend_from_slice(client_random);
     seed.extend_from_slice(server_random);
-    prf_p_hash(crypto, pre_master_secret, &seed, 48, h)
+    prf_p_hash(crypto, pre_master_secret, &seed, 48, version, h)
 }
 
 pub(crate) struct EncryptionKeyLengths {
@@ -170,6 +258,7 @@ pub(crate) fn prf_encryption_keys(
     client_random: &[u8],
     server_random: &[u8],
     lengths: EncryptionKeyLengths,
+    version: ProtocolVersion,
     h: CipherSuiteHash,
 ) -> Result<EncryptionKeys> {
     let mut seed = PRF_KEY_EXPANSION_LABEL.as_bytes().to_vec();
@@ -181,6 +270,7 @@ pub(crate) fn prf_encryption_keys(
         master_secret,
         &seed,
         (2 * lengths.mac) + (2 * lengths.key) + (2 * lengths.iv),
+        version,
         h,
     )?;
     let mut key_material = &material[..];
@@ -218,23 +308,39 @@ pub(crate) fn prf_verify_data(
     master_secret: &[u8],
     handshake_bodies: &[u8],
     label: &str,
+    version: ProtocolVersion,
     h: CipherSuiteHash,
 ) -> Result<Vec<u8>> {
-    let result = match h {
-        CipherSuiteHash::Sha256 => crypto
-            .hash(CryptoHashAlgorithm::Sha256, handshake_bodies)
-            .map_err(|error| Error::Crypto(error.to_string()))?,
+    // DTLS 1.0-1.1 hash the handshake transcript with both MD5 and SHA-1 (RFC 4346 section 7.4.9);
+    // DTLS 1.2 uses the suite's single hash.
+    let result = if version == PROTOCOL_VERSION1_0 {
+        let mut result = crypto
+            .hash(CryptoHashAlgorithm::Md5, handshake_bodies)
+            .map_err(|error| Error::Crypto(error.to_string()))?;
+        result.extend_from_slice(
+            &crypto
+                .hash(CryptoHashAlgorithm::Sha1, handshake_bodies)
+                .map_err(|error| Error::Crypto(error.to_string()))?,
+        );
+        result
+    } else {
+        match h {
+            CipherSuiteHash::Sha256 => crypto
+                .hash(CryptoHashAlgorithm::Sha256, handshake_bodies)
+                .map_err(|error| Error::Crypto(error.to_string()))?,
+        }
     };
     let mut seed = label.as_bytes().to_vec();
     seed.extend_from_slice(&result);
 
-    prf_p_hash(crypto, master_secret, &seed, 12, h)
+    prf_p_hash(crypto, master_secret, &seed, 12, version, h)
 }
 
 pub(crate) fn prf_verify_data_client(
     crypto: &dyn RTCCrypto,
     master_secret: &[u8],
     handshake_bodies: &[u8],
+    version: ProtocolVersion,
     h: CipherSuiteHash,
 ) -> Result<Vec<u8>> {
     prf_verify_data(
@@ -242,6 +348,7 @@ pub(crate) fn prf_verify_data_client(
         master_secret,
         handshake_bodies,
         PRF_VERIFY_DATA_CLIENT_LABEL,
+        version,
         h,
     )
 }
@@ -250,6 +357,7 @@ pub(crate) fn prf_verify_data_server(
     crypto: &dyn RTCCrypto,
     master_secret: &[u8],
     handshake_bodies: &[u8],
+    version: ProtocolVersion,
     h: CipherSuiteHash,
 ) -> Result<Vec<u8>> {
     prf_verify_data(
@@ -257,6 +365,7 @@ pub(crate) fn prf_verify_data_server(
         master_secret,
         handshake_bodies,
         PRF_VERIFY_DATA_SERVER_LABEL,
+        version,
         h,
     )
 }

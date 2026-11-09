@@ -4,6 +4,7 @@ use super::curve::named_curve::*;
 use super::extension::extension_use_srtp::SrtpProtectionProfile;
 use super::handshake::handshake_random::*;
 use super::prf::*;
+use crate::record_layer::record_layer_header::{ProtocolVersion, PROTOCOL_VERSION1_2};
 use crypto::RTCCryptoProvider;
 use crypto::SecretVec;
 use rkyv::{Archive, Deserialize, Serialize};
@@ -33,6 +34,11 @@ pub struct State {
     pub identity_hint: Vec<u8>,
 
     pub(crate) is_client: bool,
+
+    /// The version negotiated with the peer: DTLS 1.2 for H3C-class peers, DTLS 1.0 for peers
+    /// that predate 1.2 (e.g. the TP-Link AP1300GI). It selects the PRF and `Finished` hash and
+    /// the version stamped on every record.
+    pub(crate) negotiated_version: ProtocolVersion,
 
     pub(crate) pre_master_secret: Vec<u8>,
     pub(crate) extended_master_secret: bool,
@@ -64,6 +70,8 @@ struct SerializedState {
     peer_certificates: Vec<Vec<u8>>,
     identity_hint: Vec<u8>,
     is_client: bool,
+    negotiated_version_major: u8,
+    negotiated_version_minor: u8,
 }
 
 impl State {
@@ -88,6 +96,7 @@ impl State {
             identity_hint: vec![],
 
             is_client,
+            negotiated_version: PROTOCOL_VERSION1_2,
 
             pre_master_secret: vec![],
             extended_master_secret: false,
@@ -148,6 +157,8 @@ impl State {
             peer_certificates: self.peer_certificates.clone(),
             identity_hint: self.identity_hint.clone(),
             is_client: self.is_client,
+            negotiated_version_major: self.negotiated_version.major,
+            negotiated_version_minor: self.negotiated_version.minor,
         })
     }
 
@@ -171,6 +182,11 @@ impl State {
         self.remote_random = HandshakeRandom::unmarshal(&mut reader)?;
 
         self.is_client = serialized.is_client;
+
+        self.negotiated_version = ProtocolVersion {
+            major: serialized.negotiated_version_major,
+            minor: serialized.negotiated_version_minor,
+        };
 
         // Set master secret
         self.master_secret.clone_from(&serialized.master_secret);
@@ -210,6 +226,7 @@ impl State {
                 self.remote_random.marshal(&mut writer)?;
             }
 
+            let version = self.negotiated_version;
             if self.is_client {
                 cipher_suite.init(
                     self.crypto_provider.clone(),
@@ -217,6 +234,7 @@ impl State {
                     &local_random,
                     &remote_random,
                     true,
+                    version,
                 )
             } else {
                 cipher_suite.init(
@@ -225,6 +243,7 @@ impl State {
                     &remote_random,
                     &local_random,
                     false,
+                    version,
                 )
             }
         } else {
@@ -289,6 +308,20 @@ impl State {
             .is_some_and(|cipher_suite| cipher_suite.is_psk())
     }
 
+    /// Whether the negotiated suite uses static-RSA key exchange (server decrypts the client's
+    /// RSA-encrypted premaster secret with its own private key).
+    pub fn is_cipher_suite_rsa(&self) -> bool {
+        self.cipher_suite
+            .as_ref()
+            .is_some_and(|cipher_suite| {
+                matches!(
+                    cipher_suite.id(),
+                    CipherSuiteId::Tls_Rsa_With_Aes_128_Cbc_Sha
+                        | CipherSuiteId::Tls_Rsa_With_Aes_256_Cbc_Sha
+                )
+            })
+    }
+
     /// Exports `length` bytes of keying material from an established session, as defined in
     /// RFC 5705.
     ///
@@ -337,6 +370,7 @@ impl State {
                 &self.master_secret,
                 &seed,
                 length,
+                self.negotiated_version,
                 cipher_suite.hash_func(),
             ) {
                 Ok(v) => Ok(SecretVec::new(v)),

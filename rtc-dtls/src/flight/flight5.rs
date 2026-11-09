@@ -12,7 +12,6 @@ use crate::handshake::handshake_message_finished::*;
 use crate::handshake::handshake_message_server_key_exchange::*;
 use crate::handshake::*;
 use crate::prf::*;
-use crate::record_layer::record_layer_header::*;
 use crate::record_layer::*;
 use crate::signature_hash_algorithm::*;
 use shared::error::Error;
@@ -137,6 +136,7 @@ impl Flight for Flight5 {
                     cfg.provider().crypto(),
                     &state.master_secret,
                     &plain_text,
+                    state.negotiated_version,
                     cipher_suite.hash_func(),
                 ) {
                     Ok(d) => d,
@@ -195,7 +195,7 @@ impl Flight for Flight5 {
         if state.remote_requested_certificate {
             pkts.push(Packet {
                 record: RecordLayer::new(
-                    PROTOCOL_VERSION1_2,
+                    state.negotiated_version,
                     0,
                     Content::Handshake(Handshake::new(HandshakeMessage::Certificate(
                         HandshakeMessageCertificate {
@@ -233,7 +233,7 @@ impl Flight for Flight5 {
 
         pkts.push(Packet {
             record: RecordLayer::new(
-                PROTOCOL_VERSION1_2,
+                state.negotiated_version,
                 0,
                 Content::Handshake(Handshake::new(HandshakeMessage::ClientKeyExchange(
                     client_key_exchange,
@@ -433,7 +433,7 @@ impl Flight for Flight5 {
 
             let mut p = Packet {
                 record: RecordLayer::new(
-                    PROTOCOL_VERSION1_2,
+                    state.negotiated_version,
                     0,
                     Content::Handshake(Handshake::new(HandshakeMessage::CertificateVerify(
                         HandshakeMessageCertificateVerify {
@@ -482,7 +482,7 @@ impl Flight for Flight5 {
 
         pkts.push(Packet {
             record: RecordLayer::new(
-                PROTOCOL_VERSION1_2,
+                state.negotiated_version,
                 0,
                 Content::ChangeCipherSpec(ChangeCipherSpec {}),
             ),
@@ -561,6 +561,7 @@ impl Flight for Flight5 {
                     cfg.provider().crypto(),
                     &state.master_secret,
                     &plain_text,
+                    state.negotiated_version,
                     cipher_suite.hash_func(),
                 ) {
                     Ok(data) => data,
@@ -579,7 +580,7 @@ impl Flight for Flight5 {
 
         pkts.push(Packet {
             record: RecordLayer::new(
-                PROTOCOL_VERSION1_2,
+                state.negotiated_version,
                 1,
                 Content::Handshake(Handshake::new(HandshakeMessage::Finished(
                     HandshakeMessageFinished {
@@ -629,6 +630,7 @@ fn initalize_cipher_suite(
             let session_hash = match cache.session_hash(
                 cfg.provider().crypto(),
                 cipher_suite_hash_func,
+                state.negotiated_version,
                 cfg.initial_epoch,
                 sending_plain_text,
             ) {
@@ -648,6 +650,7 @@ fn initalize_cipher_suite(
                 cfg.provider().crypto(),
                 &state.pre_master_secret,
                 &session_hash,
+                state.negotiated_version,
                 cipher_suite_hash_func,
             ) {
                 Ok(m) => m,
@@ -667,6 +670,7 @@ fn initalize_cipher_suite(
                 &state.pre_master_secret,
                 &client_random,
                 &server_random,
+                state.negotiated_version,
                 cipher_suite_hash_func,
             ) {
                 Ok(m) => m,
@@ -769,6 +773,7 @@ fn initalize_cipher_suite(
             &client_random,
             &server_random,
             true,
+            state.negotiated_version,
         )
     {
         return Err((

@@ -318,6 +318,44 @@ impl Flight for Flight4 {
                         .identity_hint
                         .clone_from(&client_key_exchange.identity_hint);
                     pre_master_secret = prf_psk_pre_master_secret(&psk);
+                } else if state.is_cipher_suite_rsa() {
+                    // Static-RSA: the client RSA-encrypted the premaster with our public
+                    // key; recover it with our private key. The generic ClientKeyExchange
+                    // unmarshal may fold the [2B len][ciphertext] body into identity_hint
+                    // when the two length fields collide, so read the non-empty half.
+                    let certificate = match cfg.get_certificate(&cfg.server_name) {
+                        Ok(cert) => cert,
+                        Err(err) => {
+                            return Err((
+                                Some(Alert {
+                                    alert_level: AlertLevel::Fatal,
+                                    alert_description: AlertDescription::InternalError,
+                                }),
+                                Some(err),
+                            ));
+                        }
+                    };
+                    let rsa_ciphertext = if !client_key_exchange.identity_hint.is_empty() {
+                        &client_key_exchange.identity_hint
+                    } else {
+                        &client_key_exchange.public_key
+                    };
+                    pre_master_secret = match certificate
+                        .private_key
+                        .signing_key
+                        .rsa_decrypt(rsa_ciphertext)
+                    {
+                        Ok(secret) => secret,
+                        Err(err) => {
+                            return Err((
+                                Some(Alert {
+                                    alert_level: AlertLevel::Fatal,
+                                    alert_description: AlertDescription::DecryptError,
+                                }),
+                                Some(Error::Other(err.to_string())),
+                            ));
+                        }
+                    };
                 } else if let Some(local_keypair) = &mut state.local_keypair {
                     let curve = local_keypair.curve;
                     pre_master_secret = match prf_pre_master_secret(
@@ -343,6 +381,7 @@ impl Flight for Flight4 {
                     let session_hash = match cache.session_hash(
                         cfg.provider().crypto(),
                         hf,
+                        state.negotiated_version,
                         cfg.initial_epoch,
                         &[],
                     ) {
@@ -362,6 +401,7 @@ impl Flight for Flight4 {
                         cfg.provider().crypto(),
                         &pre_master_secret,
                         &session_hash,
+                        state.negotiated_version,
                         cipher_suite_hash_func,
                     ) {
                         Ok(ms) => ms,
@@ -381,6 +421,7 @@ impl Flight for Flight4 {
                         &pre_master_secret,
                         &client_random,
                         &server_random,
+                        state.negotiated_version,
                         cipher_suite_hash_func,
                     ) {
                         Ok(ms) => ms,
@@ -403,6 +444,7 @@ impl Flight for Flight4 {
                         &client_random,
                         &server_random,
                         false,
+                        state.negotiated_version,
                     )
                 {
                     return Err((
@@ -545,7 +587,7 @@ impl Flight for Flight4 {
             }));
         }
 
-        if !state.is_cipher_suite_psk() {
+        if !state.is_cipher_suite_psk() && !state.is_cipher_suite_rsa() {
             extensions.extend_from_slice(&[
                 Extension::SupportedEllipticCurves(ExtensionSupportedEllipticCurves {
                     elliptic_curves: cfg.local_named_curves.clone(),
@@ -556,13 +598,19 @@ impl Flight for Flight4 {
             ]);
         }
 
+        // A DTLS 1.0 ServerHello carries no extension block: these old peers send none, and
+        // RFC 4346 permits the server to omit the block entirely in that case.
+        if state.negotiated_version == PROTOCOL_VERSION1_0 {
+            extensions.clear();
+        }
+
         let mut pkts = vec![Packet {
             record: RecordLayer::new(
-                PROTOCOL_VERSION1_2,
+                state.negotiated_version,
                 0,
                 Content::Handshake(Handshake::new(HandshakeMessage::ServerHello(
                     HandshakeMessageServerHello {
-                        version: PROTOCOL_VERSION1_2,
+                        version: state.negotiated_version,
                         random: state.local_random.clone(),
                         cipher_suite: {
                             if let Some(cipher_suite) = &state.cipher_suite {
@@ -596,7 +644,7 @@ impl Flight for Flight4 {
 
             pkts.push(Packet {
                 record: RecordLayer::new(
-                    PROTOCOL_VERSION1_2,
+                    state.negotiated_version,
                     0,
                     Content::Handshake(Handshake::new(HandshakeMessage::Certificate(
                         HandshakeMessageCertificate {
@@ -665,7 +713,7 @@ impl Flight for Flight4 {
 
                 pkts.push(Packet {
                     record: RecordLayer::new(
-                        PROTOCOL_VERSION1_2,
+                        state.negotiated_version,
                         0,
                         Content::Handshake(Handshake::new(HandshakeMessage::ServerKeyExchange(
                             HandshakeMessageServerKeyExchange {
@@ -689,7 +737,7 @@ impl Flight for Flight4 {
             if cfg.client_auth as u8 > ClientAuthType::NoClientCert as u8 {
                 pkts.push(Packet {
                     record: RecordLayer::new(
-                        PROTOCOL_VERSION1_2,
+                        state.negotiated_version,
                         0,
                         Content::Handshake(Handshake::new(HandshakeMessage::CertificateRequest(
                             HandshakeMessageCertificateRequest {
@@ -713,7 +761,7 @@ impl Flight for Flight4 {
             // https://tools.ietf.org/html/rfc4279#section-2
             pkts.push(Packet {
                 record: RecordLayer::new(
-                    PROTOCOL_VERSION1_2,
+                    state.negotiated_version,
                     0,
                     Content::Handshake(Handshake::new(HandshakeMessage::ServerKeyExchange(
                         HandshakeMessageServerKeyExchange {
@@ -736,7 +784,7 @@ impl Flight for Flight4 {
 
         pkts.push(Packet {
             record: RecordLayer::new(
-                PROTOCOL_VERSION1_2,
+                state.negotiated_version,
                 0,
                 Content::Handshake(Handshake::new(HandshakeMessage::ServerHelloDone(
                     HandshakeMessageServerHelloDone {},
@@ -785,6 +833,7 @@ mod tests {
             _client_random: &[u8],
             _server_random: &[u8],
             _is_client: bool,
+            _version: ProtocolVersion,
         ) -> Result<()> {
             unimplemented!();
         }

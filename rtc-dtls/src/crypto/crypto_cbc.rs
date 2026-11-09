@@ -34,18 +34,16 @@ impl CryptoCbc {
     /// Builds the cipher from the local and remote keys and salts.
     pub fn new(
         provider: Arc<dyn RTCCryptoProvider>,
+        algorithm: CbcAlgorithm,
         local_key: &[u8],
         local_mac: &[u8],
         remote_key: &[u8],
         remote_mac: &[u8],
     ) -> Result<Self> {
-        let local_cipher = provider
-            .crypto()
-            .new_cbc(CbcAlgorithm::Aes256Cbc, local_key)
-            .map_err(crypto_error)?;
+        let local_cipher = provider.crypto().new_cbc(algorithm, local_key).map_err(crypto_error)?;
         let remote_cipher = provider
             .crypto()
-            .new_cbc(CbcAlgorithm::Aes256Cbc, remote_key)
+            .new_cbc(algorithm, remote_key)
             .map_err(crypto_error)?;
         // Key the record MACs once per epoch, alongside the ciphers.
         let write_mac = provider
@@ -188,14 +186,49 @@ mod tests {
         let remote_mac = [0x44; 20];
         let sender = CryptoCbc::new(
             provider.clone(),
+            CbcAlgorithm::Aes256Cbc,
             &local_key,
             &local_mac,
             &remote_key,
             &remote_mac,
         )
         .unwrap();
-        let receiver =
-            CryptoCbc::new(provider, &remote_key, &remote_mac, &local_key, &local_mac).unwrap();
+        let receiver = CryptoCbc::new(
+            provider,
+            CbcAlgorithm::Aes256Cbc,
+            &remote_key,
+            &remote_mac,
+            &local_key,
+            &local_mac,
+        )
+        .unwrap();
+        (sender, receiver)
+    }
+
+    fn cipher_pair_aes128() -> (CryptoCbc, CryptoCbc) {
+        let provider = crypto::default_provider().unwrap();
+        let local_key = [0x11; 16];
+        let remote_key = [0x22; 16];
+        let local_mac = [0x33; 20];
+        let remote_mac = [0x44; 20];
+        let sender = CryptoCbc::new(
+            provider.clone(),
+            CbcAlgorithm::Aes128Cbc,
+            &local_key,
+            &local_mac,
+            &remote_key,
+            &remote_mac,
+        )
+        .unwrap();
+        let receiver = CryptoCbc::new(
+            provider,
+            CbcAlgorithm::Aes128Cbc,
+            &remote_key,
+            &remote_mac,
+            &local_key,
+            &local_mac,
+        )
+        .unwrap();
         (sender, receiver)
     }
 
@@ -236,6 +269,17 @@ mod tests {
         assert_eq!(
             receiver.decrypt(&truncated),
             Err(Error::ErrInvalidPacketLength)
+        );
+    }
+
+    #[test]
+    fn aes128_roundtrip() {
+        let (mut sender, mut receiver) = cipher_pair_aes128();
+        let (header, raw) = record(b"CBC record payload");
+        let encrypted = sender.encrypt(&header, &raw).unwrap();
+        assert_eq!(
+            receiver.decrypt(&encrypted).unwrap()[RECORD_LAYER_HEADER_SIZE..],
+            raw[RECORD_LAYER_HEADER_SIZE..]
         );
     }
 }

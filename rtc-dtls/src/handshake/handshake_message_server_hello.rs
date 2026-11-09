@@ -69,9 +69,13 @@ impl HandshakeMessageServerHello {
 
         len += 1;
 
-        len += 2;
-        for extension in &self.extensions {
-            len += extension.size();
+        // A DTLS 1.0 ServerHello ends at the compression method: the old peers that
+        // negotiate it send no extensions and may reject a trailing extension block.
+        if self.version != PROTOCOL_VERSION1_0 {
+            len += 2;
+            for extension in &self.extensions {
+                len += extension.size();
+            }
         }
 
         len
@@ -94,16 +98,21 @@ impl HandshakeMessageServerHello {
 
         writer.write_u8(self.compression_method as u8)?;
 
-        let mut extension_buffer = vec![];
-        {
-            let mut extension_writer = BufWriter::<&mut Vec<u8>>::new(extension_buffer.as_mut());
-            for extension in &self.extensions {
-                extension.marshal(&mut extension_writer)?;
+        // DTLS 1.0 carries no extension block; emit none so an old peer that never
+        // learned RFC 3546 extensions sees the message it expects.
+        if self.version != PROTOCOL_VERSION1_0 {
+            let mut extension_buffer = vec![];
+            {
+                let mut extension_writer =
+                    BufWriter::<&mut Vec<u8>>::new(extension_buffer.as_mut());
+                for extension in &self.extensions {
+                    extension.marshal(&mut extension_writer)?;
+                }
             }
-        }
 
-        writer.write_u16::<BigEndian>(extension_buffer.len() as u16)?;
-        writer.write_all(&extension_buffer)?;
+            writer.write_u16::<BigEndian>(extension_buffer.len() as u16)?;
+            writer.write_all(&extension_buffer)?;
+        }
 
         Ok(writer.flush()?)
     }

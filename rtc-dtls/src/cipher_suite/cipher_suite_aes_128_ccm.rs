@@ -66,6 +66,7 @@ impl CipherSuite for CipherSuiteAes128Ccm {
         client_random: &[u8],
         server_random: &[u8],
         is_client: bool,
+        version: ProtocolVersion,
     ) -> Result<()> {
         let keys = prf_encryption_keys(
             provider.crypto(),
@@ -77,6 +78,7 @@ impl CipherSuite for CipherSuiteAes128Ccm {
                 key: CipherSuiteAes128Ccm::PRF_KEY_LEN,
                 iv: CipherSuiteAes128Ccm::PRF_IV_LEN,
             },
+            version,
             self.hash_func(),
         )?;
 

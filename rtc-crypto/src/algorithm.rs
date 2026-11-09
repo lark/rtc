@@ -4,6 +4,8 @@
 pub enum HashAlgorithm {
     /// MD5, retained only for STUN long-term credential derivation.
     Md5,
+    /// SHA-1, retained only for the DTLS 1.0 `Finished` hash and PRF.
+    Sha1,
     /// SHA-256.
     Sha256,
 }
@@ -69,6 +71,8 @@ pub enum BlockCipherAlgorithm {
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CbcAlgorithm {
+    /// AES-128-CBC.
+    Aes128Cbc,
     /// AES-256-CBC.
     Aes256Cbc,
 }

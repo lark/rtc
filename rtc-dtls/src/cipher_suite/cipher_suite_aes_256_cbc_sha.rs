@@ -63,6 +63,7 @@ impl CipherSuite for CipherSuiteAes256CbcSha {
         client_random: &[u8],
         server_random: &[u8],
         is_client: bool,
+        version: ProtocolVersion,
     ) -> Result<()> {
         let keys = prf_encryption_keys(
             provider.crypto(),
@@ -74,12 +75,14 @@ impl CipherSuite for CipherSuiteAes256CbcSha {
                 key: CipherSuiteAes256CbcSha::PRF_KEY_LEN,
                 iv: CipherSuiteAes256CbcSha::PRF_IV_LEN,
             },
+            version,
             self.hash_func(),
         )?;
 
         if is_client {
             self.cbc = Some(CryptoCbc::new(
                 provider,
+                crypto::CbcAlgorithm::Aes256Cbc,
                 &keys.client_write_key,
                 &keys.client_mac_key,
                 &keys.server_write_key,
@@ -88,6 +91,7 @@ impl CipherSuite for CipherSuiteAes256CbcSha {
         } else {
             self.cbc = Some(CryptoCbc::new(
                 provider,
+                crypto::CbcAlgorithm::Aes256Cbc,
                 &keys.server_write_key,
                 &keys.server_mac_key,
                 &keys.client_write_key,

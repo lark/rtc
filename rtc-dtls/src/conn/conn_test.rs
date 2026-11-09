@@ -2491,6 +2491,7 @@ fn test_handle_incoming_queued_packets_drains_when_cipher_ready() {
         &[0u8; 32],
         &[0u8; 32],
         false,
+        PROTOCOL_VERSION1_2,
     );
     assert!(cs.is_initialized());
     conn.state.cipher_suite = Some(cs);
@@ -2524,6 +2525,7 @@ fn test_handle_incoming_queued_packets_sets_handshake_rx() {
         &[0u8; 32],
         &[0u8; 32],
         false,
+        PROTOCOL_VERSION1_2,
     );
     conn.state.cipher_suite = Some(cs);
     conn.state.remote_epoch = 0;
@@ -2604,6 +2606,7 @@ fn test_queued_packets_drained_when_cipher_ready() {
         &[0u8; 32],
         &[0u8; 32],
         false,
+        PROTOCOL_VERSION1_2,
     );
     conn.state.cipher_suite = Some(cs);
     conn.state.remote_epoch = 1; // ChangeCipherSpec has been processed
@@ -2637,6 +2640,7 @@ fn test_handshake_rx_set_after_queue_processing() {
         &[0u8; 32],
         &[0u8; 32],
         false,
+        PROTOCOL_VERSION1_2,
     );
     conn.state.cipher_suite = Some(cs);
 

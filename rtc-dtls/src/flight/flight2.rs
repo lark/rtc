@@ -4,7 +4,6 @@ use super::*;
 use crate::content::*;
 use crate::handshake::handshake_message_hello_verify_request::*;
 use crate::handshake::*;
-use crate::record_layer::record_layer_header::*;
 use shared::error::Error;
 
 use crate::config::HandshakeConfig;
@@ -65,7 +64,9 @@ impl Flight for Flight2 {
                 }
             };
 
-            if client_hello.version != PROTOCOL_VERSION1_2 {
+            // The cookie-bearing ClientHello must repeat the version the server already
+            // negotiated from the first one.
+            if client_hello.version != state.negotiated_version {
                 return Err((
                     Some(Alert {
                         alert_level: AlertLevel::Fatal,
@@ -110,11 +111,11 @@ impl Flight for Flight2 {
         state.handshake_send_sequence = 0;
         Ok(vec![Packet {
             record: RecordLayer::new(
-                PROTOCOL_VERSION1_2,
+                state.negotiated_version,
                 0,
                 Content::Handshake(Handshake::new(HandshakeMessage::HelloVerifyRequest(
                     HandshakeMessageHelloVerifyRequest {
-                        version: PROTOCOL_VERSION1_2,
+                        version: state.negotiated_version,
                         cookie: state.cookie.clone(),
                     },
                 ))),

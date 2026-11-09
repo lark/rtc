@@ -2,6 +2,10 @@
 pub mod cipher_suite_aes_128_ccm;
 /// Shared implementation for the AES-128-GCM-SHA256 suites.
 pub mod cipher_suite_aes_128_gcm_sha256;
+/// The static-RSA AES-128-CBC with SHA-1 suite (`TLS_RSA_WITH_AES_128_CBC_SHA`).
+pub mod cipher_suite_aes_128_cbc_sha;
+/// The static-RSA AES-256-CBC with SHA-1 suite (`TLS_RSA_WITH_AES_256_CBC_SHA`).
+pub mod cipher_suite_rsa_aes_256_cbc_sha;
 /// Shared implementation for the AES-256-CBC-SHA suites.
 pub mod cipher_suite_aes_256_cbc_sha;
 /// Shared implementation for the ChaCha20-Poly1305-SHA256 suites.
@@ -30,7 +34,9 @@ use super::record_layer::record_layer_header::*;
 use shared::error::*;
 
 use cipher_suite_aes_128_gcm_sha256::*;
+use cipher_suite_aes_128_cbc_sha::*;
 use cipher_suite_aes_256_cbc_sha::*;
+use cipher_suite_rsa_aes_256_cbc_sha::*;
 use cipher_suite_chacha20_poly1305_sha256::*;
 use cipher_suite_tls_ecdhe_ecdsa_with_aes_128_ccm::*;
 use cipher_suite_tls_ecdhe_ecdsa_with_aes_128_ccm8::*;
@@ -62,6 +68,12 @@ pub enum CipherSuiteId {
     Tls_Ecdhe_Ecdsa_With_Aes_256_Cbc_Sha = 0xc00a,
     /// `TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA` (`0xc014`).
     Tls_Ecdhe_Rsa_With_Aes_256_Cbc_Sha = 0xc014,
+
+    // Static-RSA (key exchange) CBC
+    /// `TLS_RSA_WITH_AES_128_CBC_SHA` (`0x002f`), static-RSA key exchange with AES-128-CBC.
+    Tls_Rsa_With_Aes_128_Cbc_Sha = 0x002f,
+    /// `TLS_RSA_WITH_AES_256_CBC_SHA` (`0x0035`), static-RSA key exchange with AES-256-CBC.
+    Tls_Rsa_With_Aes_256_Cbc_Sha = 0x0035,
 
     /// `TLS_PSK_WITH_AES_128_CCM` (`0xc0a4`).
     Tls_Psk_With_Aes_128_Ccm = 0xc0a4,
@@ -101,6 +113,12 @@ impl fmt::Display for CipherSuiteId {
             CipherSuiteId::Tls_Ecdhe_Rsa_With_Aes_256_Cbc_Sha => {
                 write!(f, "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA")
             }
+            CipherSuiteId::Tls_Rsa_With_Aes_128_Cbc_Sha => {
+                write!(f, "TLS_RSA_WITH_AES_128_CBC_SHA")
+            }
+            CipherSuiteId::Tls_Rsa_With_Aes_256_Cbc_Sha => {
+                write!(f, "TLS_RSA_WITH_AES_256_CBC_SHA")
+            }
             CipherSuiteId::Tls_Psk_With_Aes_128_Ccm => write!(f, "TLS_PSK_WITH_AES_128_CCM"),
             CipherSuiteId::Tls_Psk_With_Aes_128_Ccm_8 => write!(f, "TLS_PSK_WITH_AES_128_CCM_8"),
             CipherSuiteId::Tls_Psk_With_Aes_128_Gcm_Sha256 => {
@@ -132,6 +150,10 @@ impl From<u16> for CipherSuiteId {
             // AES-256-CBC-SHA
             0xc00a => CipherSuiteId::Tls_Ecdhe_Ecdsa_With_Aes_256_Cbc_Sha,
             0xc014 => CipherSuiteId::Tls_Ecdhe_Rsa_With_Aes_256_Cbc_Sha,
+
+            // Static-RSA (key exchange) CBC
+            0x002f => CipherSuiteId::Tls_Rsa_With_Aes_128_Cbc_Sha,
+            0x0035 => CipherSuiteId::Tls_Rsa_With_Aes_256_Cbc_Sha,
 
             0xc0a4 => CipherSuiteId::Tls_Psk_With_Aes_128_Ccm,
             0xc0a8 => CipherSuiteId::Tls_Psk_With_Aes_128_Ccm_8,
@@ -165,6 +187,8 @@ impl From<&str> for CipherSuiteId {
             "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA" => {
                 CipherSuiteId::Tls_Ecdhe_Rsa_With_Aes_256_Cbc_Sha
             }
+            "TLS_RSA_WITH_AES_128_CBC_SHA" => CipherSuiteId::Tls_Rsa_With_Aes_128_Cbc_Sha,
+            "TLS_RSA_WITH_AES_256_CBC_SHA" => CipherSuiteId::Tls_Rsa_With_Aes_256_Cbc_Sha,
             "TLS_PSK_WITH_AES_128_CCM" => CipherSuiteId::Tls_Psk_With_Aes_128_Ccm,
             "TLS_PSK_WITH_AES_128_CCM_8" => CipherSuiteId::Tls_Psk_With_Aes_128_Ccm_8,
             "TLS_PSK_WITH_AES_128_GCM_SHA256" => CipherSuiteId::Tls_Psk_With_Aes_128_Gcm_Sha256,
@@ -197,6 +221,12 @@ impl CipherSuiteId {
             | Self::Tls_Ecdhe_Rsa_With_Aes_256_Cbc_Sha => {
                 CryptoAlgorithm::Cbc(CbcAlgorithm::Aes256Cbc)
             }
+            Self::Tls_Rsa_With_Aes_128_Cbc_Sha => {
+                CryptoAlgorithm::Cbc(CbcAlgorithm::Aes128Cbc)
+            }
+            Self::Tls_Rsa_With_Aes_256_Cbc_Sha => {
+                CryptoAlgorithm::Cbc(CbcAlgorithm::Aes256Cbc)
+            }
             Self::Tls_Ecdhe_Ecdsa_With_ChaCha20_Poly1305_Sha256
             | Self::Tls_Ecdhe_Rsa_With_ChaCha20_Poly1305_Sha256 => {
                 CryptoAlgorithm::Aead(AeadAlgorithm::ChaCha20Poly1305)
@@ -208,6 +238,20 @@ impl CipherSuiteId {
             && crypto.supports(record_algorithm)
             && (!matches!(record_algorithm, CryptoAlgorithm::Cbc(_))
                 || crypto.supports(CryptoAlgorithm::Hmac(HmacAlgorithm::Sha1)))
+    }
+
+    /// Whether this suite may be negotiated for DTLS 1.0.
+    ///
+    /// Only the CBC-SHA1 suites predate DTLS 1.2; the SHA-256 GCM/CCM/ChaCha20 suites were
+    /// defined for TLS 1.2 and are never valid below it.
+    pub(crate) fn is_dtls10(self) -> bool {
+        matches!(
+            self,
+            Self::Tls_Rsa_With_Aes_128_Cbc_Sha
+                | Self::Tls_Rsa_With_Aes_256_Cbc_Sha
+                | Self::Tls_Ecdhe_Ecdsa_With_Aes_256_Cbc_Sha
+                | Self::Tls_Ecdhe_Rsa_With_Aes_256_Cbc_Sha
+        )
     }
 }
 
@@ -256,6 +300,7 @@ pub trait CipherSuite: Send {
         client_random: &[u8],
         server_random: &[u8],
         is_client: bool,
+        version: ProtocolVersion,
     ) -> Result<()>;
 
     /// Protects one record, returning the encrypted record including its header.
@@ -299,6 +344,12 @@ pub fn cipher_suite_for_id(id: CipherSuiteId) -> Result<Box<dyn CipherSuite>> {
         }
         CipherSuiteId::Tls_Ecdhe_Ecdsa_With_Aes_256_Cbc_Sha => {
             Ok(Box::new(CipherSuiteAes256CbcSha::new(false)))
+        }
+        CipherSuiteId::Tls_Rsa_With_Aes_128_Cbc_Sha => {
+            Ok(Box::new(CipherSuiteAes128CbcSha::new()))
+        }
+        CipherSuiteId::Tls_Rsa_With_Aes_256_Cbc_Sha => {
+            Ok(Box::new(CipherSuiteRsaAes256CbcSha::new()))
         }
         CipherSuiteId::Tls_Psk_With_Aes_128_Ccm => {
             Ok(Box::new(new_cipher_suite_tls_psk_with_aes_128_ccm()))

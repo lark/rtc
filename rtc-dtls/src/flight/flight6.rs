@@ -4,7 +4,6 @@ use crate::content::*;
 use crate::handshake::handshake_message_finished::*;
 use crate::handshake::*;
 use crate::prf::*;
-use crate::record_layer::record_layer_header::*;
 
 use crate::config::HandshakeConfig;
 use std::fmt;
@@ -71,7 +70,7 @@ impl Flight for Flight6 {
     ) -> Result<Vec<Packet>, (Option<Alert>, Option<Error>)> {
         let mut pkts = vec![Packet {
             record: RecordLayer::new(
-                PROTOCOL_VERSION1_2,
+                state.negotiated_version,
                 0,
                 Content::ChangeCipherSpec(ChangeCipherSpec {}),
             ),
@@ -148,6 +147,7 @@ impl Flight for Flight6 {
                     cfg.provider().crypto(),
                     &state.master_secret,
                     &plain_text,
+                    state.negotiated_version,
                     cipher_suite.hash_func(),
                 ) {
                     Ok(data) => data,
@@ -166,7 +166,7 @@ impl Flight for Flight6 {
 
         pkts.push(Packet {
             record: RecordLayer::new(
-                PROTOCOL_VERSION1_2,
+                state.negotiated_version,
                 1,
                 Content::Handshake(Handshake::new(HandshakeMessage::Finished(
                     HandshakeMessageFinished {

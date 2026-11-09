@@ -63,7 +63,7 @@ impl RTCCrypto for AwsLcRsCrypto {
     fn supports(&self, algorithm: CryptoAlgorithm) -> bool {
         matches!(
             algorithm,
-            CryptoAlgorithm::Hash(HashAlgorithm::Md5 | HashAlgorithm::Sha256)
+            CryptoAlgorithm::Hash(HashAlgorithm::Md5 | HashAlgorithm::Sha1 | HashAlgorithm::Sha256)
                 | CryptoAlgorithm::Hmac(HmacAlgorithm::Sha1 | HmacAlgorithm::Sha256)
                 | CryptoAlgorithm::Aead(
                     AeadAlgorithm::Aes128Gcm
@@ -78,7 +78,7 @@ impl RTCCrypto for AwsLcRsCrypto {
                 | CryptoAlgorithm::BlockCipher(
                     BlockCipherAlgorithm::Aes128 | BlockCipherAlgorithm::Aes256,
                 )
-                | CryptoAlgorithm::Cbc(CbcAlgorithm::Aes256Cbc)
+                | CryptoAlgorithm::Cbc(CbcAlgorithm::Aes128Cbc | CbcAlgorithm::Aes256Cbc)
                 | CryptoAlgorithm::KeyExchange(
                     KeyExchangeAlgorithm::P256
                         | KeyExchangeAlgorithm::P384
@@ -107,6 +107,7 @@ impl RTCCrypto for AwsLcRsCrypto {
     fn hash(&self, algorithm: HashAlgorithm, data: &[u8]) -> Result<Vec<u8>, CryptoError> {
         match algorithm {
             HashAlgorithm::Md5 => Ok(common::md5(data)),
+            HashAlgorithm::Sha1 => Ok(common::sha1(data)),
             HashAlgorithm::Sha256 => Ok(digest::digest(&digest::SHA256, data).as_ref().to_vec()),
         }
     }

@@ -645,7 +645,13 @@ fn test_handshake_cache_session_hash() -> Result<()> {
         }
 
         let provider = crypto::default_provider().map_err(|e| Error::Crypto(e.to_string()))?;
-        let verify_data = h.session_hash(provider.crypto(), CipherSuiteHash::Sha256, 0, &[])?;
+        let verify_data = h.session_hash(
+            provider.crypto(),
+            CipherSuiteHash::Sha256,
+            crate::record_layer::record_layer_header::PROTOCOL_VERSION1_2,
+            0,
+            &[],
+        )?;
 
         assert_eq!(
             verify_data, expected,

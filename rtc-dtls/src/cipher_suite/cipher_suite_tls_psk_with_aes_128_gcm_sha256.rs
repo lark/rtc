@@ -46,6 +46,7 @@ impl CipherSuite for CipherSuiteTlsPskWithAes128GcmSha256 {
         client_random: &[u8],
         server_random: &[u8],
         is_client: bool,
+        version: ProtocolVersion,
     ) -> Result<()> {
         let keys = prf_encryption_keys(
             provider.crypto(),
@@ -57,6 +58,7 @@ impl CipherSuite for CipherSuiteTlsPskWithAes128GcmSha256 {
                 key: CipherSuiteTlsPskWithAes128GcmSha256::PRF_KEY_LEN,
                 iv: CipherSuiteTlsPskWithAes128GcmSha256::PRF_IV_LEN,
             },
+            version,
             self.hash_func(),
         )?;
 

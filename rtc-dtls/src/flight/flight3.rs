@@ -171,7 +171,11 @@ impl Flight for Flight3 {
                 }
             };
 
-            if h.version != PROTOCOL_VERSION1_2 {
+            // Mirror the server-side rule: DTLS 1.0 is only valid with a CBC-SHA1 suite, the
+            // SHA-256 AEAD suites being TLS 1.2-only.
+            let version_ok = h.version == PROTOCOL_VERSION1_2
+                || (h.version == PROTOCOL_VERSION1_0 && h.cipher_suite.is_dtls10());
+            if !version_ok {
                 return Err((
                     Some(Alert {
                         alert_level: AlertLevel::Fatal,
@@ -180,6 +184,7 @@ impl Flight for Flight3 {
                     Some(Error::ErrUnsupportedProtocolVersion),
                 ));
             }
+            state.negotiated_version = h.version;
 
             for extension in &h.extensions {
                 match extension {
@@ -379,11 +384,11 @@ impl Flight for Flight3 {
 
         Ok(vec![Packet {
             record: RecordLayer::new(
-                PROTOCOL_VERSION1_2,
+                state.negotiated_version,
                 0,
                 Content::Handshake(Handshake::new(HandshakeMessage::ClientHello(
                     HandshakeMessageClientHello {
-                        version: PROTOCOL_VERSION1_2,
+                        version: state.negotiated_version,
                         random: state.local_random.clone(),
                         cookie: state.cookie.clone(),
 

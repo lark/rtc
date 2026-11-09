@@ -3,6 +3,7 @@ mod handshake_cache_test;
 
 use crate::cipher_suite::*;
 use crate::handshake::*;
+use crate::record_layer::record_layer_header::{ProtocolVersion, PROTOCOL_VERSION1_0};
 
 use std::collections::HashMap;
 use std::io::BufReader;
@@ -154,6 +155,7 @@ impl HandshakeCache {
         &self,
         crypto: &dyn crypto::RTCCrypto,
         hf: CipherSuiteHash,
+        version: ProtocolVersion,
         epoch: u16,
         additional: &[u8],
     ) -> Result<Vec<u8>> {
@@ -217,10 +219,24 @@ impl HandshakeCache {
 
         merged.extend_from_slice(additional);
 
-        match hf {
-            CipherSuiteHash::Sha256 => crypto
-                .hash(crypto::HashAlgorithm::Sha256, &merged)
-                .map_err(|error| Error::Crypto(error.to_string())),
+        // Session hash for Extended Master Secret: DTLS 1.0-1.1 concatenate MD5 and SHA-1
+        // (RFC 4346 section 7.4.9), DTLS 1.2 uses the suite's single hash.
+        if version == PROTOCOL_VERSION1_0 {
+            let mut out = crypto
+                .hash(crypto::HashAlgorithm::Md5, &merged)
+                .map_err(|error| Error::Crypto(error.to_string()))?;
+            out.extend_from_slice(
+                &crypto
+                    .hash(crypto::HashAlgorithm::Sha1, &merged)
+                    .map_err(|error| Error::Crypto(error.to_string()))?,
+            );
+            Ok(out)
+        } else {
+            match hf {
+                CipherSuiteHash::Sha256 => crypto
+                    .hash(crypto::HashAlgorithm::Sha256, &merged)
+                    .map_err(|error| Error::Crypto(error.to_string())),
+            }
         }
     }
 }

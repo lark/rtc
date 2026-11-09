@@ -165,11 +165,11 @@ impl Flight for Flight1 {
 
         Ok(vec![Packet {
             record: RecordLayer::new(
-                PROTOCOL_VERSION1_2,
+                state.negotiated_version,
                 0,
                 Content::Handshake(Handshake::new(HandshakeMessage::ClientHello(
                     HandshakeMessageClientHello {
-                        version: PROTOCOL_VERSION1_2,
+                        version: state.negotiated_version,
                         random: state.local_random.clone(),
                         cookie: state.cookie.clone(),
 

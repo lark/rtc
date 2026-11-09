@@ -205,7 +205,7 @@ impl DTLSConn {
 
         let pkt = Packet {
             record: RecordLayer::new(
-                PROTOCOL_VERSION1_2,
+                self.state.negotiated_version,
                 self.get_local_epoch(),
                 Content::ApplicationData(ApplicationData {
                     data: BytesMut::from(p),
@@ -250,7 +250,7 @@ impl DTLSConn {
     pub(crate) fn notify(&mut self, level: AlertLevel, desc: AlertDescription) {
         self.write_packets(vec![Packet {
             record: RecordLayer::new(
-                PROTOCOL_VERSION1_2,
+                self.state.negotiated_version,
                 self.get_local_epoch(),
                 Content::Alert(Alert {
                     alert_level: level,
@@ -479,7 +479,7 @@ impl DTLSConn {
             if let Some(alert) = alert {
                 self.outgoing_packets.push_back(Packet {
                     record: RecordLayer::new(
-                        PROTOCOL_VERSION1_2,
+                        self.state.negotiated_version,
                         self.state.local_epoch,
                         Content::Alert(Alert {
                             alert_level: alert.alert_level,
@@ -529,7 +529,7 @@ impl DTLSConn {
                 if let Some(alert) = alert {
                     self.outgoing_packets.push_back(Packet {
                         record: RecordLayer::new(
-                            PROTOCOL_VERSION1_2,
+                            self.state.negotiated_version,
                             self.state.local_epoch,
                             Content::Alert(Alert {
                                 alert_level: alert.alert_level,

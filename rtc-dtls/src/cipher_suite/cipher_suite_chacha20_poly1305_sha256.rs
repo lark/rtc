@@ -63,6 +63,7 @@ impl CipherSuite for CipherSuiteChaCha20Poly1305Sha256 {
         client_random: &[u8],
         server_random: &[u8],
         is_client: bool,
+        version: ProtocolVersion,
     ) -> Result<()> {
         let keys = prf_encryption_keys(
             provider.crypto(),
@@ -74,6 +75,7 @@ impl CipherSuite for CipherSuiteChaCha20Poly1305Sha256 {
                 key: CipherSuiteChaCha20Poly1305Sha256::PRF_KEY_LEN,
                 iv: CipherSuiteChaCha20Poly1305Sha256::PRF_IV_LEN,
             },
+            version,
             self.hash_func(),
         )?;
 

@@ -24,6 +24,7 @@ pub fn assert_provider(provider: &dyn RTCCryptoProvider) {
 fn assert_basic_capabilities(crypto: &dyn RTCCrypto) {
     let capabilities = [
         CryptoAlgorithm::Hash(HashAlgorithm::Md5),
+        CryptoAlgorithm::Hash(HashAlgorithm::Sha1),
         CryptoAlgorithm::Hash(HashAlgorithm::Sha256),
         CryptoAlgorithm::Hmac(HmacAlgorithm::Sha1),
         CryptoAlgorithm::Hmac(HmacAlgorithm::Sha256),
@@ -84,6 +85,10 @@ pub fn assert_hashes_and_hmac(crypto: &dyn RTCCrypto) {
     assert_eq!(
         crypto.hash(HashAlgorithm::Md5, b"abc").unwrap(),
         bytes("900150983cd24fb0d6963f7d28e17f72")
+    );
+    assert_eq!(
+        crypto.hash(HashAlgorithm::Sha1, b"abc").unwrap(),
+        bytes("a9993e364706816aba3e25717850c26c9cd0d89d")
     );
     assert_eq!(
         crypto.hash(HashAlgorithm::Sha256, b"abc").unwrap(),

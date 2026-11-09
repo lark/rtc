@@ -1,5 +1,6 @@
 use super::*;
 use crate::cipher_suite::CipherSuiteHash;
+use crate::record_layer::record_layer_header::PROTOCOL_VERSION1_2;
 #[cfg(all(feature = "crypto-ring", feature = "crypto-aws-lc-rs"))]
 use crypto::RTCCryptoProvider;
 
@@ -72,6 +73,7 @@ fn test_master_secret() -> Result<()> {
         &pre_master_secret,
         &client_random,
         &server_random,
+        PROTOCOL_VERSION1_2,
         CipherSuiteHash::Sha256,
     )?;
 
@@ -128,6 +130,7 @@ fn test_encryption_keys() -> Result<()> {
             key: 16,
             iv: 4,
         },
+        PROTOCOL_VERSION1_2,
         CipherSuiteHash::Sha256,
     )?;
 
@@ -269,6 +272,7 @@ fn test_verify_data() -> Result<()> {
         crypto::default_provider().unwrap().crypto(),
         &master_secret,
         &final_msg,
+        PROTOCOL_VERSION1_2,
         CipherSuiteHash::Sha256,
     )?;
 

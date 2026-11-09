@@ -172,7 +172,14 @@ impl HandshakeMessageClientHello {
         let compression_methods = CompressionMethods::unmarshal(reader)?;
         let mut extensions = vec![];
 
-        let extension_buffer_len = reader.read_u16::<BigEndian>()? as usize;
+        // The extensions block is optional on the wire: a ClientHello with no
+        // extensions may omit the length field entirely (seen from a TP-Link
+        // TL-AP1300GI WTP), so treat a truncated read as "no extensions" rather
+        // than a decode error.
+        let extension_buffer_len = match reader.read_u16::<BigEndian>() {
+            Ok(len) => len as usize,
+            Err(_) => 0,
+        };
         let mut extension_buffer = vec![0u8; extension_buffer_len];
         reader.read_exact(&mut extension_buffer)?;
 

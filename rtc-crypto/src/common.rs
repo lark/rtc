@@ -10,6 +10,7 @@ use ccm::aead::AeadInPlace;
 use ccm::consts::{U8, U12, U16};
 use ctr::cipher::StreamCipher as CtrStreamCipher;
 use md5::{Digest, Md5};
+use sha1::Sha1;
 
 const AES_BLOCK_LEN: usize = 16;
 const CCM_NONCE_LEN: usize = 12;
@@ -40,6 +41,10 @@ pub(crate) fn fill_random(output: &mut [u8]) -> Result<(), CryptoError> {
 
 pub(crate) fn md5(data: &[u8]) -> Vec<u8> {
     Md5::digest(data).to_vec()
+}
+
+pub(crate) fn sha1(data: &[u8]) -> Vec<u8> {
+    Sha1::digest(data).to_vec()
 }
 
 pub(crate) fn block_encrypt(
@@ -90,6 +95,9 @@ pub(crate) fn new_cbc(
     key: &[u8],
 ) -> Result<Box<dyn CbcCipher>, CryptoError> {
     match algorithm {
+        CbcAlgorithm::Aes128Cbc => Ok(Box::new(AesCbc {
+            key: ExpandedAesKey::new_128(key)?,
+        })),
         CbcAlgorithm::Aes256Cbc => Ok(Box::new(AesCbc {
             key: ExpandedAesKey::new_256(key)?,
         })),
@@ -118,14 +126,22 @@ pub(crate) fn new_ccm(
 }
 
 // Stores an expanded key inside an already boxed cipher object, avoiding another allocation in
-// every constructed state object. Only AES-256 is needed: `CbcAlgorithm` has a single variant,
-// and CTR now goes through the `ctr` crate.
+// every constructed state object. A 16-byte variant backs `TLS_RSA_WITH_AES_128_CBC_SHA`;
+// a 32-byte variant backs the legacy AES-256 CBC suite.
 #[allow(clippy::large_enum_variant)]
 enum ExpandedAesKey {
+    Aes128(Aes128),
     Aes256(Aes256),
 }
 
 impl ExpandedAesKey {
+    fn new_128(key: &[u8]) -> Result<Self, CryptoError> {
+        check_key_len(16, key.len())?;
+        Ok(Self::Aes128(
+            Aes128::new_from_slice(key).map_err(|_| invalid_key(16, key.len()))?,
+        ))
+    }
+
     fn new_256(key: &[u8]) -> Result<Self, CryptoError> {
         check_key_len(32, key.len())?;
         Ok(Self::Aes256(
@@ -135,12 +151,14 @@ impl ExpandedAesKey {
 
     fn encrypt(&self, block: &mut [u8; AES_BLOCK_LEN]) {
         match self {
+            Self::Aes128(cipher) => cipher.encrypt_block(GenericArray::from_mut_slice(block)),
             Self::Aes256(cipher) => cipher.encrypt_block(GenericArray::from_mut_slice(block)),
         }
     }
 
     fn decrypt(&self, block: &mut [u8; AES_BLOCK_LEN]) {
         match self {
+            Self::Aes128(cipher) => cipher.decrypt_block(GenericArray::from_mut_slice(block)),
             Self::Aes256(cipher) => cipher.decrypt_block(GenericArray::from_mut_slice(block)),
         }
     }

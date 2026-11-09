@@ -58,27 +58,33 @@ impl Flight for Flight0 {
                 }
             };
 
-            if client_hello.version != PROTOCOL_VERSION1_2 {
-                return Err((
-                    Some(Alert {
-                        alert_level: AlertLevel::Fatal,
-                        alert_description: AlertDescription::ProtocolVersion,
-                    }),
-                    Some(Error::ErrUnsupportedProtocolVersion),
-                ));
-            }
-
             state.remote_random = client_hello.random.clone();
 
             if let Ok(id) =
                 find_matching_cipher_suite(&client_hello.cipher_suites, &cfg.local_cipher_suites)
             {
                 if let Ok(cipher_suite) = cipher_suite_for_id(id) {
+                    // DTLS 1.0 is carried only by the CBC-SHA1 suites; the SHA-256 AEAD suites
+                    // postdate it, so a 1.0 ClientHello offering only those cannot be negotiated.
+                    let version_ok = client_hello.version == PROTOCOL_VERSION1_2
+                        || (client_hello.version == PROTOCOL_VERSION1_0
+                            && cipher_suite.id().is_dtls10());
+                    if !version_ok {
+                        return Err((
+                            Some(Alert {
+                                alert_level: AlertLevel::Fatal,
+                                alert_description: AlertDescription::ProtocolVersion,
+                            }),
+                            Some(Error::ErrUnsupportedProtocolVersion),
+                        ));
+                    }
+
                     debug!(
                         "[handshake:{}] use cipher suite: {}",
                         srv_cli_str(state.is_client),
                         cipher_suite.to_string()
                     );
+                    state.negotiated_version = client_hello.version;
                     state.cipher_suite = Some(cipher_suite);
                 }
             } else {
@@ -150,7 +156,7 @@ impl Flight for Flight0 {
                 ));
             }
 
-            if state.local_keypair.is_none() {
+            if state.local_keypair.is_none() && !state.is_cipher_suite_rsa() {
                 state.local_keypair = match state
                     .named_curve
                     .generate_keypair_with_crypto(cfg.provider().crypto())

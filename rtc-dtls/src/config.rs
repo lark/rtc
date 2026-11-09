@@ -471,7 +471,9 @@ impl ConfigBuilder {
                             match id {
                                 CipherSuiteId::Tls_Ecdhe_Rsa_With_Aes_128_Gcm_Sha256
                                 | CipherSuiteId::Tls_Ecdhe_Rsa_With_Aes_256_Cbc_Sha
-                                | CipherSuiteId::Tls_Ecdhe_Rsa_With_ChaCha20_Poly1305_Sha256 => {
+                                | CipherSuiteId::Tls_Ecdhe_Rsa_With_ChaCha20_Poly1305_Sha256
+                                | CipherSuiteId::Tls_Rsa_With_Aes_128_Cbc_Sha
+                                | CipherSuiteId::Tls_Rsa_With_Aes_256_Cbc_Sha => {
                                     algorithm.signature
                                         == crate::signature_hash_algorithm::SignatureAlgorithm::Rsa
                                 }

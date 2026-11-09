@@ -227,6 +227,17 @@ pub trait SigningKey: Send + Sync {
     /// Signs `message`.
     fn sign(&self, scheme: SignatureScheme, message: &[u8]) -> Result<Vec<u8>, CryptoError>;
 
+    /// Decrypts an RSA PKCS#1 v1.5 (type 2 padding) ciphertext with this private key.
+    ///
+    /// Used by static-RSA TLS key exchange suites (e.g. `TLS_RSA_WITH_AES_128_CBC_SHA`), where
+    /// the server recovers the client's encrypted premaster secret. The base implementation is a
+    /// no-op; legacy/non-exportable keys override it with their native RSA math.
+    fn rsa_decrypt(&self, _ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        Err(CryptoError::Provider(
+            "RSA decode unsupported by this key".to_owned(),
+        ))
+    }
+
     /// Exports PKCS#8 when supported. `Ok(None)` means the key is non-exportable.
     fn to_pkcs8_der(&self) -> Result<Option<SecretVec>, CryptoError> {
         Ok(None)
